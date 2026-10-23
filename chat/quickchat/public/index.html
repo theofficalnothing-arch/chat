@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quick Chat</title>
+<style>
+:root {
+  --bg: #313338; --side: #2b2d31; --deep: #1e1f22; --input: #383a40; --hover: #2e3035;
+  --fg: #dbdee1; --strong: #f2f3f5; --muted: #949ba4; --line: #3f4147;
+  --blurple: #5865f2; --blurple-hover: #4752c4; --danger: #f23f43;
+  --link: #00a8fc; --owner: #3ba0ff; --jl: #ed4245;
+  --font: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 16px; line-height: 1.375;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+
+/* join screen */
+#auth { height: 100%; display: grid; place-items: center; padding: 16px; background: var(--deep); }
+.join { width: 100%; max-width: 440px; background: var(--bg); border-radius: 8px; padding: 32px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+.join h1 { margin: 0; font-size: 24px; text-align: center; color: var(--strong); }
+.join p { margin: 0; text-align: center; color: var(--muted); font-size: 15px; }
+.field { display: flex; flex-direction: column; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.field input, .dialog input { width: 100%; border: 0; border-radius: 4px; background: var(--deep); color: var(--fg); font: inherit; font-size: 16px; padding: 10px; }
+.field input:focus, .dialog input:focus { outline: 2px solid var(--link); }
+.btn { border: 0; border-radius: 3px; background: var(--blurple); color: #fff; font-weight: 500; padding: 10px 16px; min-height: 40px; }
+.btn:hover { background: var(--blurple-hover); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.ghost { background: transparent; color: var(--fg); }
+.btn.ghost:hover { text-decoration: underline; background: transparent; }
+.err { color: var(--danger); font-size: 14px; margin: 0; }
+
+/* app shell */
+#app { height: 100%; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.side { background: var(--side); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.server { height: 48px; padding: 0 16px; display: flex; align-items: center; font-weight: 700; color: var(--strong); border-bottom: 1px solid var(--deep); flex: none; }
+.chans { flex: 1; padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.label { padding: 0 8px 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); }
+.chan { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 4px; padding: 6px 8px; color: var(--muted); font-weight: 500; }
+.chan:hover { background: var(--hover); color: var(--fg); }
+.chan[aria-current="true"] { background: #404249; color: var(--strong); }
+.hash { color: var(--muted); font-weight: 400; font-size: 20px; line-height: 1; }
+.pip { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--strong); }
+.me-panel { height: 52px; flex: none; background: #232428; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+.me-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: transparent; border: 0; border-radius: 4px; padding: 4px; text-align: left; }
+.me-main:hover { background: #35373c; }
+.me-text { min-width: 0; line-height: 1.2; }
+.me-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me-role { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gg { flex: none; width: 32px; height: 32px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-weight: 700; font-size: 14px; }
+.gg:hover { background: #35373c; color: var(--strong); }
+.av { width: 40px; height: 40px; border-radius: 50%; flex: none; color: #fff; font-weight: 600; display: grid; place-items: center; }
+.me-main .av { width: 32px; height: 32px; font-size: 14px; }
+
+.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.chead { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--deep); box-shadow: 0 1px 0 rgba(0,0,0,.1); min-width: 0; }
+.chead b { color: var(--strong); }
+.topic { color: var(--muted); font-size: 14px; padding-left: 8px; margin-left: 4px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.spacer { flex: 1; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.live { background: #23a55a; }
+.sub { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sub.bad { color: var(--danger); }
+main { flex: 1; min-height: 0; overflow-y: auto; }
+.thread { padding: 16px 0 8px; display: flex; flex-direction: column; min-height: 100%; }
+.day { display: flex; align-items: center; gap: 8px; margin: 16px 16px 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.day::before, .day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.group { display: flex; gap: 16px; padding: 2px 16px; margin-top: 16px; min-width: 0; }
+.group:first-child, .day + .group { margin-top: 0; }
+.gbody { min-width: 0; flex: 1; }
+.ghead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.gname { font-weight: 500; color: var(--strong); }
+.n-owner { color: var(--owner); }
+.n-jl { color: var(--jl); }
+.badge { font-size: 11px; font-weight: 600; border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; line-height: 16px; }
+.when { font-size: 12px; color: var(--muted); }
+.line { position: relative; display: flex; align-items: flex-start; gap: 8px; margin-inline: -16px; padding: 1px 16px; }
+.line:hover { background: rgba(2,2,2,.06); }
+.text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.del { flex: none; background: var(--side); border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; font-size: 12px; color: var(--muted); line-height: 22px; }
+.del:hover { color: var(--strong); }
+.del.arm { color: #fff; background: var(--danger); border-color: var(--danger); }
+@media (hover: hover) { .del { opacity: 0; } .line:hover .del, .del:focus-visible, .del.arm { opacity: 1; } }
+a.lnk { color: var(--link); text-decoration: none; }
+a.lnk:hover { text-decoration: underline; }
+/* Links channel: big words */
+.thread.links .text { font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+.thread.links .group { margin-top: 24px; }
+.thread.links .del { margin-top: 6px; }
+.empty { margin: auto; padding: 10vh 24px; text-align: center; color: var(--muted); max-width: 420px; }
+.empty h2 { margin: 0 0 6px; color: var(--strong); font-size: 22px; }
+.empty p { margin: 0; }
+
+.footer { flex: none; padding: 0 16px 24px; }
+.composer { display: flex; align-items: flex-end; background: var(--input); border-radius: 8px; padding: 0 8px 0 16px; }
+.composer textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; line-height: 1.375; max-height: 160px; padding: 11px 0; }
+.composer textarea::placeholder { color: var(--muted); }
+.composer .btn { align-self: center; margin-left: 8px; min-height: 32px; padding: 4px 14px; }
+.composer.denied { padding: 11px 16px; color: var(--muted); cursor: not-allowed; user-select: none; }
+
+/* dialog */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.dialog { width: 100%; max-width: 440px; background: var(--bg); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.dialog .dbody { padding: 24px 24px 16px; display: flex; flex-direction: column; gap: 12px; }
+.dialog h2 { margin: 0; font-size: 20px; color: var(--strong); }
+.dialog p { margin: 0; color: var(--muted); font-size: 14px; }
+.dialog .dfoot { background: var(--side); padding: 16px 24px; display: flex; justify-content: flex-end; gap: 8px; }
+
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--deep); color: var(--strong); border-radius: 6px; padding: 10px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.5); z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 720px) {
+  #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .side { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .server { display: none; }
+  .chans { flex-direction: row; flex: 1 1 auto; padding: 6px 8px; gap: 4px; overflow: visible; }
+  .label { display: none; }
+  .chan { width: auto; }
+  .me-panel { height: 48px; flex: 0 1 auto; max-width: 52%; background: transparent; }
+  .me-text { max-width: 9em; }
+  .topic { display: none; }
+  .footer { padding-bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { main { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<div id="auth" hidden>
+  <form class="join" id="authForm">
+    <h1>Welcome to Quick Chat</h1>
+    <p>Pick a name to join. There is no password, and other people can use the same name as you.</p>
+    <label class="field">Your name<input id="aName" type="text" maxlength="30" autocomplete="nickname" required></label>
+    <label class="field" id="inviteWrap" hidden>Room code<input id="aInvite" type="text" maxlength="100" autocomplete="off"></label>
+    <p class="err" id="authErr" hidden></p>
+    <button class="btn" id="authGo" type="submit">Join</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <aside class="side">
+    <div class="server">Quick Chat</div>
+    <nav class="chans" aria-label="Channels">
+      <div class="label">Text channels</div>
+      <button class="chan" id="chGeneral" type="button" aria-current="true"><span class="hash">#</span>general<span class="pip" id="pipGeneral" hidden></span></button>
+      <button class="chan" id="chLinks" type="button" aria-current="false"><span class="hash">#</span>links<span class="pip" id="pipLinks" hidden></span></button>
+    </nav>
+    <div class="me-panel">
+      <button class="me-main" id="meBtn" type="button" title="Change your name">
+        <div class="av" id="meAv"></div>
+        <div class="me-text"><div class="me-name" id="meName"></div><div class="me-role" id="meRole"></div></div>
+      </button>
+      <button class="gg" id="ggBtn" type="button" title="Enter a code" aria-label="Enter a code">gg</button>
+    </div>
+  </aside>
+
+  <section class="chat">
+    <div class="chead">
+      <span class="hash">#</span><b id="chTitle">general</b><span class="topic" id="chTopic"></span>
+      <span class="spacer"></span><span class="dot" id="dot" aria-hidden="true"></span><span class="sub" id="status">Connecting…</span>
+    </div>
+    <main id="scroller" aria-live="polite"><div class="thread" id="thread"></div></main>
+    <div class="footer">
+      <form class="composer" id="form">
+        <textarea id="input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Message"></textarea>
+        <button class="btn" id="send" type="submit">Send</button>
+      </form>
+      <div class="composer denied" id="denied" hidden role="note">You do not have permission to send messages in this channel.</div>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="modal" hidden>
+  <form class="dialog" id="mForm" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="dbody">
+      <h2 id="mTitle"></h2>
+      <p id="mText"></p>
+      <input id="mInput" type="text" autocomplete="off" aria-label="Value">
+      <p class="err" id="mErr" hidden></p>
+    </div>
+    <div class="dfoot">
+      <button class="btn ghost" id="mCancel" type="button">Cancel</button>
+      <button class="btn" id="mSubmit" type="submit">OK</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var ROLE_LABEL = { owner: 'Owner', jl: 'im just like that' };
+  var TOPIC = { general: 'Say hi to everyone', links: 'Big words and links. Only owners can post here.' };
+  var me = null, messages = [], es = null, inviteRequired = false;
+  var ch = 'general';
+  var unread = { general: false, links: false };
+  var armed = null, armTimer = null, sending = false, modalCfg = null, toastTimer = null;
+
+  function api(method, url, body) {
+    var opts = { method: method, headers: {}, credentials: 'same-origin' };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error(j.error || 'Something went wrong'); e.status = r.status; throw e; }
+        return j;
+      });
+    });
+  }
+  function toast(t) {
+    var el = $('toast'); el.textContent = t; el.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.hidden = true; }, 3500);
+  }
+  function hue(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+  function nameClass(role) { return 'gname' + (role === 'owner' ? ' n-owner' : role === 'jl' ? ' n-jl' : ''); }
+  function avatar(el, uid, name) {
+    el.style.background = 'hsl(' + hue(uid) + ' 45% 40%)';
+    el.textContent = (name || '?').charAt(0).toUpperCase();
+  }
+
+  // ----- join -----
+  function remembered() { try { return localStorage.getItem('qc_name') || ''; } catch (e) { return ''; } }
+  function remember(n) { try { localStorage.setItem('qc_name', n); } catch (e) {} }
+  function showAuth() {
+    $('app').hidden = true; $('auth').hidden = false;
+    $('inviteWrap').hidden = !inviteRequired;
+    if (!$('aName').value) $('aName').value = remembered();
+    $('aName').focus();
+  }
+  $('authForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    $('authGo').disabled = true; $('authErr').hidden = true;
+    api('POST', '/api/join', { name: $('aName').value, invite: $('aInvite').value }).then(function (j) {
+      remember(j.user.name); enter(j.user);
+    }).catch(function (err) {
+      $('authErr').textContent = err.message; $('authErr').hidden = false;
+    }).then(function () { $('authGo').disabled = false; });
+  });
+
+  // ----- app -----
+  function enter(user) {
+    me = user;
+    $('auth').hidden = true; $('app').hidden = false;
+    ch = 'general'; unread = { general: false, links: false };
+    renderMe(); updateChannel(); renderThread(true);
+    loadMessages(); connect();
+    $('input').focus();
+  }
+  function renderMe() {
+    avatar($('meAv'), me.id, me.name);
+    var n = $('meName'); n.textContent = me.name; n.className = 'me-name' + (me.role === 'owner' ? ' n-owner' : me.role === 'jl' ? ' n-jl' : '');
+    $('meRole').textContent = ROLE_LABEL[me.role] || 'Member';
+  }
+  function setStatus(t, bad, live) {
+    $('status').textContent = t; $('status').className = 'sub' + (bad ? ' bad' : '');
+    $('dot').className = 'dot' + (live ? ' live' : '');
+  }
+  function nearBottom() { var s = $('scroller'); return s.scrollHeight - s.scrollTop - s.clientHeight < 140; }
+  function toBottom() { var s = $('scroller'); s.scrollTop = s.scrollHeight; }
+
+  function loadMessages() {
+    return api('GET', '/api/messages').then(function (j) { messages = j.messages; renderThread(true); })
+      .catch(function (err) { if (err.status === 401) { me = null; showAuth(); } });
+  }
+  function refreshMe() {
+    return api('GET', '/api/me').then(function (j) {
+      if (!j.user) { me = null; showAuth(); return; }
+      me = j.user; renderMe(); updateChannel();
+    }).catch(function () {});
+  }
+  function connect() {
+    if (es) es.close();
+    es = new EventSource('/api/stream');
+    es.onopen = function () { setStatus('Live', false, true); loadMessages(); };
+    es.onmessage = function (ev) {
+      var d; try { d = JSON.parse(ev.data); } catch (e) { return; }
+      if (d.type === 'message') {
+        if (!messages.some(function (m) { return m.id === d.message.id; })) {
+          messages.push(d.message);
+          var c = d.message.ch || 'general';
+          if (c !== ch && me && d.message.uid !== me.id) { unread[c] = true; updateChannel(); }
+          renderThread();
+        }
+      } else if (d.type === 'delete') {
+        messages = messages.filter(function (m) { return m.id !== d.id; }); renderThread();
+      } else if (d.type === 'refresh') { loadMessages(); refreshMe(); }
+    };
+    es.onerror = function () {
+      setStatus('Reconnecting…', true, false);
+      api('GET', '/api/me').then(function (j) { if (!j.user) { es.close(); me = null; showAuth(); } }).catch(function () {});
+    };
+  }
+
+  // ----- channels -----
+  function canPost() { return ch === 'general' || (me && me.role === 'owner'); }
+  function updateChannel() {
+    $('chGeneral').setAttribute('aria-current', ch === 'general');
+    $('chLinks').setAttribute('aria-current', ch === 'links');
+    $('pipGeneral').hidden = !unread.general || ch === 'general';
+    $('pipLinks').hidden = !unread.links || ch === 'links';
+    $('chTitle').textContent = ch;
+    $('chTopic').textContent = TOPIC[ch];
+    $('input').placeholder = 'Message #' + ch;
+    var ok = canPost();
+    $('form').hidden = !ok; $('denied').hidden = ok;
+  }
+  function switchTo(c) {
+    if (c === ch) return;
+    ch = c; unread[c] = false; armed = null;
+    updateChannel(); renderThread(true);
+    if (canPost()) $('input').focus();
+  }
+  $('chGeneral').addEventListener('click', function () { switchTo('general'); });
+  $('chLinks').addEventListener('click', function () { switchTo('links'); });
+
+  // ----- rendering -----
+  var URL_RE = /https?:\/\/[^\s<>"']+/g;
+  function appendLinked(el, text) {
+    var last = 0, m;
+    URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(text))) {
+      var raw = m[0];
+      var url = raw.replace(/[.,;:!?)\]}]+$/, '');
+      var trail = raw.slice(url.length);
+      if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
+      var ok = false;
+      try { var u = new URL(url); ok = u.protocol === 'https:' || u.protocol === 'http:'; } catch (e) {}
+      if (ok) {
+        var a = document.createElement('a');
+        a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'lnk'; a.textContent = url;
+        el.appendChild(a);
+      } else { el.appendChild(document.createTextNode(url)); }
+      if (trail) el.appendChild(document.createTextNode(trail));
+      last = m.index + raw.length;
+    }
+    if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
+  }
+  function dayKey(ts) { var d = new Date(ts); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+  function dayLabel(ts) {
+    var now = Date.now();
+    if (dayKey(ts) === dayKey(now)) return 'Today';
+    if (dayKey(ts) === dayKey(now - 86400000)) return 'Yesterday';
+    return new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  }
+  function timeStr(ts) { return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+
+  function renderThread(forceBottom) {
+    var stick = forceBottom || nearBottom();
+    var t = $('thread');
+    t.className = 'thread' + (ch === 'links' ? ' links' : '');
+    t.textContent = '';
+    var list = messages.filter(function (m) { return (m.ch || 'general') === ch; });
+    if (!list.length) {
+      var e = document.createElement('div'); e.className = 'empty';
+      var h = document.createElement('h2'); h.textContent = ch === 'links' ? 'Welcome to #links' : 'Welcome to #general';
+      var p = document.createElement('p');
+      p.textContent = ch === 'links' ? 'Anyone can read this channel. Only owners can add links.' : 'This is the start of the chat. Write the first message below.';
+      e.appendChild(h); e.appendChild(p); t.appendChild(e);
+      return;
+    }
+    var lastDay = null, body = null, lastUid = null, lastTs = 0;
+    list.forEach(function (m) {
+      var k = dayKey(m.ts);
+      if (k !== lastDay) {
+        var d = document.createElement('div'); d.className = 'day'; d.textContent = dayLabel(m.ts);
+        t.appendChild(d); lastDay = k; body = null;
+      }
+      if (!body || m.uid !== lastUid || m.ts - lastTs > 7 * 60000) {
+        var g = document.createElement('div'); g.className = 'group';
+        var av = document.createElement('div'); av.className = 'av'; avatar(av, m.uid, m.name);
+        body = document.createElement('div'); body.className = 'gbody';
+        var head = document.createElement('div'); head.className = 'ghead';
+        var nm = document.createElement('span'); nm.className = nameClass(m.role); nm.textContent = m.name;
+        head.appendChild(nm);
+        if (ROLE_LABEL[m.role]) {
+          var bd = document.createElement('span'); bd.className = 'badge ' + (m.role === 'owner' ? 'n-owner' : 'n-jl'); bd.textContent = ROLE_LABEL[m.role];
+          head.appendChild(bd);
+        }
+        var tm = document.createElement('span'); tm.className = 'when'; tm.textContent = timeStr(m.ts);
+        head.appendChild(tm);
+        body.appendChild(head); g.appendChild(av); g.appendChild(body); t.appendChild(g);
+      }
+      var line = document.createElement('div'); line.className = 'line';
+      var tx = document.createElement('div'); tx.className = 'text'; appendLinked(tx, m.text);
+      line.appendChild(tx);
+      if (me && m.uid === me.id) {
+        var del = document.createElement('button'); del.type = 'button';
+        del.className = 'del' + (armed === m.id ? ' arm' : '');
+        del.textContent = armed === m.id ? 'Delete message?' : 'Delete';
+        del.addEventListener('click', function () { onDelete(m.id); });
+        line.appendChild(del);
+      }
+      body.appendChild(line);
+      lastUid = m.uid; lastTs = m.ts;
+    });
+    if (stick) toBottom();
+  }
+  function onDelete(id) {
+    if (armed !== id) {
+      armed = id; clearTimeout(armTimer);
+      armTimer = setTimeout(function () { armed = null; renderThread(); }, 3500);
+      renderThread(); return;
+    }
+    armed = null; clearTimeout(armTimer);
+    api('DELETE', '/api/messages/' + id).then(function () {
+      messages = messages.filter(function (m) { return m.id !== id; }); renderThread();
+    }).catch(function (err) { toast(err.message); });
+  }
+
+  // ----- sending -----
+  function autosize() { var i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 160) + 'px'; }
+  function send() {
+    var i = $('input'); var text = i.value.trim();
+    if (!text || sending || !canPost()) return;
+    var target = ch;
+    sending = true; i.value = ''; autosize();
+    api('POST', '/api/messages', { text: text, ch: target }).then(function (j) {
+      if (!messages.some(function (m) { return m.id === j.message.id; })) messages.push(j.message);
+      renderThread(true); setStatus('Live', false, true);
+    }).catch(function (err) {
+      i.value = text; autosize();
+      if (err.status === 401) { me = null; showAuth(); }
+      else { if (err.status === 403) refreshMe(); toast(err.message); }
+    }).then(function () { sending = false; i.focus(); });
+  }
+  $('form').addEventListener('submit', function (e) { e.preventDefault(); send(); });
+  $('input').addEventListener('input', autosize);
+  $('input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  });
+
+  // ----- dialog (rename + codes) -----
+  function openModal(cfg) {
+    modalCfg = cfg;
+    $('mTitle').textContent = cfg.title; $('mText').textContent = cfg.text;
+    var inp = $('mInput'); inp.value = cfg.value || ''; inp.placeholder = cfg.placeholder || ''; inp.maxLength = cfg.max || 60;
+    $('mSubmit').textContent = cfg.submit; $('mErr').hidden = true; $('mSubmit').disabled = false;
+    $('modal').hidden = false; inp.focus(); inp.select();
+  }
+  function closeModal() { $('modal').hidden = true; modalCfg = null; if (me && canPost() && !$('app').hidden) $('input').focus(); }
+  $('mCancel').addEventListener('click', closeModal);
+  $('modal').addEventListener('mousedown', function (e) { if (e.target === $('modal')) closeModal(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modalCfg) closeModal(); });
+  $('mForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!modalCfg) return;
+    var cfg = modalCfg;
+    $('mSubmit').disabled = true; $('mErr').hidden = true;
+    cfg.onSubmit($('mInput').value).then(function (msg) {
+      closeModal(); if (msg) toast(msg);
+    }).catch(function (err) {
+      $('mErr').textContent = err.message; $('mErr').hidden = false; $('mSubmit').disabled = false; $('mInput').select();
+    });
+  });
+
+  $('meBtn').addEventListener('click', function () {
+    openModal({
+      title: 'Change your name', text: 'This is the name everyone sees. Other people can use the same name.',
+      value: me.name, max: 30, submit: 'Save',
+      onSubmit: function (v) {
+        return api('POST', '/api/rename', { name: v }).then(function (j) {
+          me = j.user; remember(me.name); renderMe(); loadMessages(); return 'Name changed to ' + me.name;
+        });
+      }
+    });
+  });
+  $('ggBtn').addEventListener('click', function () {
+    openModal({
+      title: 'Enter a code', text: 'Have a code? Type it in to get a role.',
+      placeholder: 'Code', max: 40, submit: 'Submit',
+      onSubmit: function (v) {
+        return api('POST', '/api/role', { code: v }).then(function (j) {
+          me = j.user; renderMe(); updateChannel(); loadMessages();
+          return 'You now have the ' + ROLE_LABEL[me.role] + ' role.';
+        });
+      }
+    });
+  });
+
+  // ----- start -----
+  api('GET', '/api/me').then(function (j) {
+    inviteRequired = !!j.inviteRequired;
+    if (j.user) enter(j.user); else showAuth();
+  }).catch(function () { showAuth(); $('authErr').textContent = 'Could not reach the server.'; $('authErr').hidden = false; });
+})();
+</script>
+</body>
+</html>
