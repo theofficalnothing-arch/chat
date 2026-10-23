@@ -1,8 +1,0 @@
-{
-  "name": "quick-chat",
-  "version": "1.0.0",
-  "private": true,
-  "description": "A small self-hosted chat with accounts and live messages",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" }
-}
