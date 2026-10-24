@@ -21,7 +21,7 @@ const SESSION_MS = 365 * 24 * 3600 * 1000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
-fs.mkdirSync(BACKUP_DIR, { recursive: true });
+try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) { console.warn('No writable disk here: ' + e.message); }
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // ---------- storage ----------
@@ -60,13 +60,45 @@ function snapshot(str) {
     });
   });
 }
+
+// ---------- Deno KV (permanent storage on Deno Deploy) ----------
+// Deno Deploy wipes the local disk and shuts the app down when idle, so the JSON file cannot be trusted there.
+// When Deno KV exists we keep the same in-memory db, but load it from KV at start and save it to KV after every change.
+var HAS_KV = typeof Deno !== 'undefined' && typeof Deno.openKv === 'function';
+var kv = null;
+async function kvInit() {
+  if (!HAS_KV) return;
+  kv = await Deno.openKv();
+  var meta = (await kv.get(['qc', 'meta'])).value;
+  if (!meta) { console.log('KV is empty; starting from the local file (if any).'); return; }
+  var parts = [];
+  for (var i = 0; i < meta.n; i++) {
+    var r = await kv.get(['qc', 'data', meta.v, i]);
+    if (r.value == null) throw new Error('KV chunk ' + i + ' is missing');
+    parts.push(r.value);
+  }
+  db = Object.assign(emptyDb(), JSON.parse(parts.join('')));
+  if (!Array.isArray(db.dms)) db.dms = [];
+  console.log('Loaded ' + db.users.length + ' users and ' + db.messages.length + ' messages from Deno KV.');
+}
+async function kvSave(str) {
+  var CH = 16000, n = Math.ceil(str.length / CH) || 1, v = Date.now();
+  var old = (await kv.get(['qc', 'meta'])).value;
+  for (var i = 0; i < n; i++) await kv.set(['qc', 'data', v, i], str.slice(i * CH, (i + 1) * CH));
+  await kv.set(['qc', 'meta'], { v: v, n: n });
+  if (old) for (var j = 0; j < old.n; j++) await kv.delete(['qc', 'data', old.v, j]);
+}
 var saveTimer = null, saving = false, dirty = false;
-function save() { dirty = true; if (saveTimer || saving) return; saveTimer = setTimeout(doSave, 250); }
+function save() { dirty = true; if (saveTimer || saving) return; saveTimer = setTimeout(doSave, kv ? 50 : 250); }
 function doSave() {
   saveTimer = null;
   if (saving) return;
   saving = true; dirty = false;
   var str = JSON.stringify(db);
+  if (kv) {
+    kvSave(str).catch(function (e) { console.error('KV save failed: ' + e.message); }).then(function () { saving = false; if (dirty) save(); });
+    return;
+  }
   fs.copyFile(DB_FILE, DB_FILE + '.prev', function () {
     writeAtomic(DB_FILE, str, function (err) {
       if (err) console.error('Save failed: ' + err.message); else snapshot(str);
@@ -75,7 +107,7 @@ function doSave() {
     });
   });
 }
-function flushSync() { try { fs.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch (e) {} }
+function flushSync() { if (kv) return; try { fs.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch (e) {} }
 process.on('SIGTERM', function () { flushSync(); process.exit(0); });
 process.on('SIGINT', function () { flushSync(); process.exit(0); });
 
@@ -521,9 +553,11 @@ var server = http.createServer(async function (req, res) {
 server.headersTimeout = 15000;
 server.requestTimeout = 60000;
 
+kvInit().catch(function (e) { console.error('Could not open Deno KV: ' + e.message); if (HAS_KV) process.exit(1); }).then(function () {
 server.listen(PORT, function () {
   console.log('Quick Chat is running on port ' + PORT + (INVITE_CODE ? ' (room code required)' : ''));
   if (OWNER_CODE === 'gg') console.warn('WARNING: OWNER_CODE is the default "gg". Anyone can become an Owner and read every direct message. Set OWNER_CODE to something secret.');
   if (JL_CODE === 'gh') console.warn('Note: JL_CODE is the default "gh".');
   if (!ADMIN_KEY) console.warn('Backups are off. Set ADMIN_KEY to let an Owner download and restore backups.');
+});
 });
