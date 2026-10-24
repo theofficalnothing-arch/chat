@@ -3,7 +3,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var DEFAULT_LABEL = { owner: 'Owner', jl: 'im just like that' };
   var DEFAULT_COLOR = { owner: '#3ba0ff', jl: '#ed4245' };
-  var TOPIC = { general: 'Say hi to everyone', links: 'Big words and links. Only owners can post here.' };
+  var TOPIC = { general: 'Everyone can post here', links: 'Big words and links. Only owners can post here.' };
 
   var me = null, users = [], messages = [], dmList = [], dmMsgs = {}, es = null;
   var view = { kind: 'ch', id: 'general' };
@@ -45,11 +45,11 @@
   function closeOverlays() { overlays().forEach(function (id) { $(id).hidden = true; }); importArmed = false; $('sImport').textContent = 'Restore from file'; }
 
   // ---------- join ----------
-  function remembered() { try { return localStorage.getItem('qc_name') || ''; } catch (e) { return ''; } }
-  function remember(n) { try { localStorage.setItem('qc_name', n); } catch (e) {} }
+  function remembered() { try { return localStorage.getItem('un') || ''; } catch (e) { return ''; } }
+  function remember(n) { try { localStorage.setItem('un', n); } catch (e) {} }
   var INTRO = {
-    guest: 'Pick a name to join. No password needed, and other people can use the same name as you.',
-    'in': 'Sign in with your username and password to get back your name, role and messages on any device.',
+    guest: 'Pick a name to start. No password needed, and names can repeat.',
+    'in': 'Sign in with your username and password to get your name, role and messages back on any device.',
     up: 'Make an account with a username and a password (any length, even one letter).'
   };
   function setMode(m) {
@@ -69,6 +69,7 @@
     $('authErr').hidden = true;
   }
   function showAuth() {
+    stopPolling();
     closeOverlays();
     $('app').hidden = true; $('auth').hidden = false;
     setMode(mode);
@@ -115,7 +116,7 @@
   function lost(err) { if (err && err.status === 401) { me = null; showAuth(); } }
 
   function loadMessages() {
-    return api('GET', '/api/messages').then(function (j) { messages = j.messages; renderThread(view.kind === 'ch'); }).catch(lost);
+    return api('GET', '/api/messages').then(function (j) { messages = j.messages; renderThread(); }).catch(lost);
   }
   function loadUsers() { return api('GET', '/api/users').then(function (j) { users = j.users; }).catch(lost); }
   function loadDms() {
@@ -134,10 +135,32 @@
     }).catch(function () {});
   }
 
+  // ---------- live updates ----------
+  var esFails = 0, esTimer = null, pollTimer = null;
+
+  function startPolling() {
+    if (pollTimer) return;
+    setStatus('Connected', false, true);
+    pollTimer = setInterval(function () {
+      loadMessages(); loadUsers(); loadDms();
+      if (view.kind === 'dm') loadConv(view.id);
+      api('GET', '/api/me').then(function (j) { if (!j.user) { me = null; showAuth(); } }).catch(function () {});
+    }, 5000);
+  }
+  function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
   function connect() {
-    if (es) es.close();
+    stopPolling(); esFails = 0; clearTimeout(esTimer);
+    if (es) { es.close(); es = null; }
+    if (typeof EventSource === 'undefined') { startPolling(); return; }
     es = new EventSource('/api/stream');
-    es.onopen = function () { setStatus('Live', false, true); loadMessages(); loadDms(); if (view.kind === 'dm') loadConv(view.id); };
+    esTimer = setTimeout(function () {
+      if (es && es.readyState !== 1) { try { es.close(); } catch (e) {} es = null; startPolling(); }
+    }, 8000);
+    es.onopen = function () {
+      clearTimeout(esTimer); esFails = 0; stopPolling();
+      setStatus('Live', false, true); loadMessages(); loadDms(); if (view.kind === 'dm') loadConv(view.id);
+    };
     es.onmessage = function (ev) {
       var d; try { d = JSON.parse(ev.data); } catch (e) { return; }
       if (d.type === 'message') {
@@ -159,8 +182,11 @@
       }
     };
     es.onerror = function () {
+      if (pollTimer) return;
+      esFails++;
       setStatus('Reconnecting…', true, false);
-      api('GET', '/api/me').then(function (j) { if (!j.user) { es.close(); me = null; showAuth(); } }).catch(function () {});
+      if (esFails >= 3) { try { es.close(); } catch (e) {} es = null; startPolling(); return; }
+      api('GET', '/api/me').then(function (j) { if (!j.user) { if (es) es.close(); me = null; showAuth(); } }).catch(function () {});
     };
   }
   function onDm(m) {
@@ -495,7 +521,7 @@
     }).then(function (blob) {
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'quickchat-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.download = 'backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
       showMsg('sBackupOk', 'Backup downloaded. Keep the file private.');
