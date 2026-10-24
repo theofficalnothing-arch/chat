@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quick Chat</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="auth" hidden>
+  <form class="join" id="authForm">
+    <h1>Welcome to Quick Chat</h1>
+    <div class="modes" role="tablist" aria-label="How to join">
+      <button type="button" role="tab" id="mGuest" aria-selected="true">Guest</button>
+      <button type="button" role="tab" id="mIn" aria-selected="false">Sign in</button>
+      <button type="button" role="tab" id="mUp" aria-selected="false">Create account</button>
+    </div>
+    <p id="authIntro"></p>
+    <label class="field" id="fName">Your name<input id="aName" type="text" maxlength="30" autocomplete="nickname"></label>
+    <label class="field" id="fUser">Username<input id="aUser" type="text" maxlength="30" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label class="field" id="fPass">Password<input id="aPass" type="password" maxlength="200" autocomplete="current-password"></label>
+    <label class="field" id="inviteWrap" hidden>Room code<input id="aInvite" type="text" maxlength="100" autocomplete="off"></label>
+    <p class="err" id="authErr" hidden></p>
+    <button class="btn" id="authGo" type="submit">Join</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <aside class="side">
+    <div class="server">Quick Chat</div>
+    <nav class="chans" aria-label="Channels and direct messages" id="nav"></nav>
+    <div class="me-panel">
+      <button class="me-main" id="meBtn" type="button" title="Settings">
+        <div class="av" id="meAv"></div>
+        <div class="me-text"><div class="me-name" id="meName"></div><div class="me-role" id="meRole"></div></div>
+      </button>
+      <button class="gg" id="ggBtn" type="button" title="Enter a code" aria-label="Enter a code">gg</button>
+    </div>
+  </aside>
+
+  <section class="chat">
+    <div class="chead">
+      <span class="hash" id="chHash">#</span><b id="chTitle">general</b><span class="topic" id="chTopic"></span>
+      <span class="spacer"></span><span class="dot" id="dot" aria-hidden="true"></span><span class="sub" id="status">Connecting…</span>
+    </div>
+    <div class="notice" id="dmNotice" hidden>Owners can read every direct message on this server.</div>
+    <main id="scroller" aria-live="polite"><div class="thread" id="thread"></div></main>
+    <div class="footer">
+      <form class="composer" id="form">
+        <textarea id="input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Message"></textarea>
+        <button class="btn" id="send" type="submit">Send</button>
+      </form>
+      <div class="composer denied" id="denied" hidden role="note"></div>
+    </div>
+  </section>
+</div>
+
+<!-- code box -->
+<div class="overlay" id="codeModal" hidden>
+  <form class="dialog" id="codeForm" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+    <div class="dbody">
+      <h2 id="cTitle">Enter a code</h2>
+      <p>Have a code? Type it in to get a role.</p>
+      <input id="cInput" type="text" autocomplete="off" maxlength="40" placeholder="Code" aria-label="Code">
+      <p class="err" id="cErr" hidden></p>
+    </div>
+    <div class="dfoot">
+      <button class="btn ghost" id="cCancel" type="button">Cancel</button>
+      <button class="btn" id="cSubmit" type="submit">Submit</button>
+    </div>
+  </form>
+</div>
+
+<!-- new DM -->
+<div class="overlay" id="dmModal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+    <div class="dbody">
+      <h2 id="dTitle">New direct message</h2>
+      <p>Pick someone to message. Owners can read every direct message.</p>
+      <input id="dSearch" type="search" placeholder="Search people" aria-label="Search people" autocomplete="off">
+      <div class="plist" id="dList"></div>
+    </div>
+    <div class="dfoot"><button class="btn ghost" id="dCancel" type="button">Close</button></div>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="overlay" id="setModal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+    <div class="dbody">
+      <h2 id="sTitle">Settings</h2>
+
+      <div class="sect" id="sProfile">
+        <h3>Profile</h3>
+        <label class="field">Name<input id="sName" type="text" maxlength="30" autocomplete="off"></label>
+        <div id="sRoleBox" hidden>
+          <div class="sect flat">
+            <label class="field">Role text<input id="sRole" type="text" maxlength="24" autocomplete="off" placeholder="Leave empty for the default"></label>
+            <div class="row"><label class="field" for="sColor">Name color</label><input id="sColor" type="color" value="#3ba0ff"><button class="btn ghost small" id="sResetRole" type="button">Reset role text and color</button></div>
+          </div>
+        </div>
+        <div class="row"><button class="btn small" id="sSaveProfile" type="button">Save profile</button></div>
+        <p class="err" id="sProfileErr" hidden></p>
+      </div>
+
+      <div class="sect" id="sAccount">
+        <h3>Account</h3>
+        <div id="sGuest" hidden>
+          <p>You are a guest on this browser. Create a username and password to sign in from any device and keep your name, role and messages.</p>
+          <div class="row" id="sGuestForm">
+            <input id="sUser" type="text" maxlength="30" placeholder="Username" aria-label="Username" autocomplete="off" autocapitalize="none" spellcheck="false">
+            <input id="sPass" type="password" maxlength="200" placeholder="Password" aria-label="Password" autocomplete="new-password">
+            <button class="btn small" id="sCreate" type="button">Save account</button>
+          </div>
+        </div>
+        <div id="sMember" hidden>
+          <p id="sSignedIn"></p>
+          <div class="row">
+            <input id="sNewPass" type="password" maxlength="200" placeholder="New password" aria-label="New password" autocomplete="new-password">
+            <button class="btn small" id="sChangePass" type="button">Change password</button>
+          </div>
+        </div>
+        <p class="err" id="sAccountErr" hidden></p>
+        <p class="okmsg" id="sAccountOk" hidden></p>
+        <div class="row"><button class="btn ghost small" id="sSignOut" type="button">Sign out</button></div>
+        <p id="sGuestWarn" hidden>Signing out as a guest means you cannot get this identity back.</p>
+      </div>
+
+      <div class="sect" id="sBackup" hidden>
+        <h3>Backup (owners)</h3>
+        <p>Download everything to a file, or restore a file on this server. This is how you move the chat to a new website. The file contains password hashes, so keep it private.</p>
+        <input id="sKey" type="password" placeholder="Admin key" aria-label="Admin key" autocomplete="off">
+        <div class="row">
+          <button class="btn small" id="sExport" type="button">Download backup</button>
+        </div>
+        <div class="row">
+          <input id="sFile" type="file" accept="application/json,.json" aria-label="Backup file">
+          <button class="btn danger small" id="sImport" type="button">Restore from file</button>
+        </div>
+        <p class="err" id="sBackupErr" hidden></p>
+        <p class="okmsg" id="sBackupOk" hidden></p>
+      </div>
+    </div>
+    <div class="dfoot"><button class="btn ghost" id="sClose" type="button">Close</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status"></div>
+<script src="/app.js"></script>
+</body>
+</html>

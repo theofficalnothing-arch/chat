@@ -1,0 +1,7 @@
+{
+  "unstable": ["kv"],
+  "tasks": {
+    "start": "deno run --allow-net --allow-env --allow-read --allow-write --unstable-kv src/server.js",
+    "build": "deno run --allow-read --allow-write build.js"
+  }
+}
