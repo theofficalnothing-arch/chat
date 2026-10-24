@@ -1,9 +1,9 @@
 
 {
-  "name": "quick-chat",
+  "name": "portal",
   "version": "1.0.0",
   "private": true,
-  "description": "A small self-hosted chat with accounts and live messages",
+  "description": "Classwork portal",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js"
