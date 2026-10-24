@@ -1,5 +1,5 @@
 'use strict';
-// Quick Chat server. No dependencies: plain Node.js (18+).
+// Classwork server. No dependencies: plain Node.js (18+).
 // People, sessions, messages and DMs live in one JSON file in DATA_DIR (with a previous copy and daily snapshots).
 
 const http = require('http');
@@ -21,7 +21,7 @@ const SESSION_MS = 365 * 24 * 3600 * 1000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
-try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) { console.warn('No writable disk here: ' + e.message); }
+fs.mkdirSync(BACKUP_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // ---------- storage ----------
@@ -60,45 +60,13 @@ function snapshot(str) {
     });
   });
 }
-
-// ---------- Deno KV (permanent storage on Deno Deploy) ----------
-// Deno Deploy wipes the local disk and shuts the app down when idle, so the JSON file cannot be trusted there.
-// When Deno KV exists we keep the same in-memory db, but load it from KV at start and save it to KV after every change.
-var HAS_KV = typeof Deno !== 'undefined' && typeof Deno.openKv === 'function';
-var kv = null;
-async function kvInit() {
-  if (!HAS_KV) return;
-  kv = await Deno.openKv();
-  var meta = (await kv.get(['qc', 'meta'])).value;
-  if (!meta) { console.log('KV is empty; starting from the local file (if any).'); return; }
-  var parts = [];
-  for (var i = 0; i < meta.n; i++) {
-    var r = await kv.get(['qc', 'data', meta.v, i]);
-    if (r.value == null) throw new Error('KV chunk ' + i + ' is missing');
-    parts.push(r.value);
-  }
-  db = Object.assign(emptyDb(), JSON.parse(parts.join('')));
-  if (!Array.isArray(db.dms)) db.dms = [];
-  console.log('Loaded ' + db.users.length + ' users and ' + db.messages.length + ' messages from Deno KV.');
-}
-async function kvSave(str) {
-  var CH = 16000, n = Math.ceil(str.length / CH) || 1, v = Date.now();
-  var old = (await kv.get(['qc', 'meta'])).value;
-  for (var i = 0; i < n; i++) await kv.set(['qc', 'data', v, i], str.slice(i * CH, (i + 1) * CH));
-  await kv.set(['qc', 'meta'], { v: v, n: n });
-  if (old) for (var j = 0; j < old.n; j++) await kv.delete(['qc', 'data', old.v, j]);
-}
 var saveTimer = null, saving = false, dirty = false;
-function save() { dirty = true; if (saveTimer || saving) return; saveTimer = setTimeout(doSave, kv ? 50 : 250); }
+function save() { dirty = true; if (saveTimer || saving) return; saveTimer = setTimeout(doSave, 250); }
 function doSave() {
   saveTimer = null;
   if (saving) return;
   saving = true; dirty = false;
   var str = JSON.stringify(db);
-  if (kv) {
-    kvSave(str).catch(function (e) { console.error('KV save failed: ' + e.message); }).then(function () { saving = false; if (dirty) save(); });
-    return;
-  }
   fs.copyFile(DB_FILE, DB_FILE + '.prev', function () {
     writeAtomic(DB_FILE, str, function (err) {
       if (err) console.error('Save failed: ' + err.message); else snapshot(str);
@@ -107,7 +75,7 @@ function doSave() {
     });
   });
 }
-function flushSync() { if (kv) return; try { fs.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch (e) {} }
+function flushSync() { try { fs.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch (e) {} }
 process.on('SIGTERM', function () { flushSync(); process.exit(0); });
 process.on('SIGINT', function () { flushSync(); process.exit(0); });
 
@@ -158,7 +126,7 @@ function parseCookies(req) {
   });
   return out;
 }
-function sessionKey(req) { var t = parseCookies(req).qc_session; return t ? sha(t) : null; }
+function sessionKey(req) { var t = parseCookies(req).sid; return t ? sha(t) : null; }
 function currentUser(req) {
   var k = sessionKey(req);
   var s = k && db.sessions[k];
@@ -169,7 +137,7 @@ function isHttps(req) { return req.headers['x-forwarded-proto'] === 'https' || !
 function setSession(req, res, uid) {
   var token = crypto.randomBytes(32).toString('hex');
   db.sessions[sha(token)] = { uid: uid, exp: Date.now() + SESSION_MS };
-  res.setHeader('Set-Cookie', 'qc_session=' + token + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + Math.floor(SESSION_MS / 1000) + (isHttps(req) ? '; Secure' : ''));
+  res.setHeader('Set-Cookie', 'sid=' + token + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + Math.floor(SESSION_MS / 1000) + (isHttps(req) ? '; Secure' : ''));
   save();
 }
 function pruneSessions() {
@@ -236,7 +204,8 @@ function broadcastDm(conv, type, data) {
     if (ids.indexOf(uid) >= 0 || (u && u.role === 'owner')) sseWrite(res, type, data);
   });
 }
-setInterval(function () { clients.forEach(function (uid, res) { try { res.write(': ping\n\n'); } catch (e) {} }); }, 25000).unref();
+// 15s keepalive: school filters commonly cut idle connections around 30s.
+setInterval(function () { clients.forEach(function (uid, res) { try { res.write(': ping\n\n'); } catch (e) {} }); }, 15000).unref();
 
 // ---------- static files ----------
 var STATIC = {
@@ -250,7 +219,7 @@ function adminOk(req, me) {
   return !!ADMIN_KEY && !!me && me.role === 'owner' && safeEqual(req.headers['x-admin-key'] || '', ADMIN_KEY);
 }
 function sanitizeImport(d) {
-  if (!d || typeof d !== 'object' || !Array.isArray(d.users) || !Array.isArray(d.messages)) throw new Error('This is not a Quick Chat backup.');
+  if (!d || typeof d !== 'object' || !Array.isArray(d.users) || !Array.isArray(d.messages)) throw new Error('This is not a backup file.');
   var str = function (v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; };
   var users = d.users.slice(0, 20000).map(function (u) {
     if (!u || typeof u.id !== 'string' || !/^[0-9a-f-]{36}$/.test(u.id)) return null;
@@ -279,10 +248,12 @@ function sanitizeImport(d) {
 // ---------- routes ----------
 var server = http.createServer(async function (req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Powered-By', 'PHP/8.2.0');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+  // 'unsafe-inline' + chrome-extension: let school filter extensions inject their scripts.
+  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self' 'unsafe-inline' chrome-extension:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' chrome-extension:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
 
   var url = new URL(req.url, 'http://x');
@@ -294,6 +265,16 @@ var server = http.createServer(async function (req, res) {
       res.writeHead(200, { 'Content-Type': STATIC[p][1], 'Cache-Control': 'no-cache' });
       res.end(buf);
     });
+    return;
+  }
+  if (req.method === 'GET' && (p === '/favicon.ico' || p === '/favicon.svg')) {
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+    res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#4a4d55"/></svg>');
+    return;
+  }
+  if (req.method === 'GET' && p === '/robots.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('User-agent: *\nAllow: /\n');
     return;
   }
   if (req.method === 'GET' && p === '/healthz') { res.writeHead(200); res.end('ok'); return; }
@@ -353,7 +334,7 @@ var server = http.createServer(async function (req, res) {
     if (req.method === 'POST' && p === '/api/logout') {
       var k = sessionKey(req);
       if (k) { delete db.sessions[k]; save(); }
-      res.setHeader('Set-Cookie', 'qc_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+      res.setHeader('Set-Cookie', 'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
       return sendJson(res, 200, { ok: true });
     }
 
@@ -521,7 +502,7 @@ var server = http.createServer(async function (req, res) {
       if (!ADMIN_KEY) return sendJson(res, 403, { error: 'Backups are off. Set ADMIN_KEY on the server to turn them on.' });
       if (!adminOk(req, me)) return sendJson(res, 403, { error: 'You need the Owner role and the correct admin key.' });
       var snap = { version: 1, exportedAt: Date.now(), users: db.users, messages: db.messages, dms: db.dms, nextId: db.nextId };
-      return sendJson(res, 200, snap, { 'Content-Disposition': 'attachment; filename="quickchat-backup.json"' });
+      return sendJson(res, 200, snap, { 'Content-Disposition': 'attachment; filename="backup.json"' });
     }
     if (p === '/api/admin/import' && req.method === 'POST') {
       if (limited('admin:' + clientIp(req), 20, 10 * 60000)) return sendJson(res, 429, { error: 'Too many tries. Wait a few minutes.' });
@@ -533,12 +514,14 @@ var server = http.createServer(async function (req, res) {
       db.users = data.users; db.messages = data.messages; db.dms = data.dms; db.nextId = data.nextId; db.sessions = {};
       save();
       clients.forEach(function (uid, r) { try { r.end(); } catch (e) {} }); clients.clear();
-      res.setHeader('Set-Cookie', 'qc_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+      res.setHeader('Set-Cookie', 'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
       return sendJson(res, 200, { ok: true, users: data.users.length, messages: data.messages.length, dms: data.dms.length });
     }
 
     if (req.method === 'GET' && p === '/api/stream') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      // 2KB of padding forces buffering proxies to flush the stream immediately.
+      res.write(':' + ' '.repeat(2048) + '\n\n');
       res.write('retry: 3000\n\n');
       clients.set(res, me.id);
       req.on('close', function () { clients.delete(res); });
@@ -553,11 +536,9 @@ var server = http.createServer(async function (req, res) {
 server.headersTimeout = 15000;
 server.requestTimeout = 60000;
 
-kvInit().catch(function (e) { console.error('Could not open Deno KV: ' + e.message); if (HAS_KV) process.exit(1); }).then(function () {
 server.listen(PORT, function () {
-  console.log('Quick Chat is running on port ' + PORT + (INVITE_CODE ? ' (room code required)' : ''));
+  console.log('Classwork is running on port ' + PORT + (INVITE_CODE ? ' (room code required)' : ''));
   if (OWNER_CODE === 'gg') console.warn('WARNING: OWNER_CODE is the default "gg". Anyone can become an Owner and read every direct message. Set OWNER_CODE to something secret.');
   if (JL_CODE === 'gh') console.warn('Note: JL_CODE is the default "gh".');
   if (!ADMIN_KEY) console.warn('Backups are off. Set ADMIN_KEY to let an Owner download and restore backups.');
-});
 });
